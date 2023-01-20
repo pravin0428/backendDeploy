@@ -1,60 +1,104 @@
 const express = require("express");
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
 const UserModel = require("../Schema/user.model");
+const argon2 = require("argon2");
+const jwt = require("jsonwebtoken");
+const app = express();
+app.use(express.json())
+let blacklist = []
 
-const user = express.Router();
-const saltRounds = 5;
-
-user.get("/", async (req, res) => {
-  const user = await UserModel.find();
-  return res.send(user);
-});
-
-user.post("/signup", async (req, res) => {
-  const { email, password } = req.body;
-  try {
-    bcrypt.hash(password, saltRounds, async function (err, hash) {
-      const user = new UserModel({ email, password: hash });
-      await user.save();
-      return res.send("Sign up successfull");
-    });
-  }catch(err) {
-    return res.status(401).send("Something went wrong");
+const authMiddlewere = (req, res, next) => {
+  const token = req.headers.authorization;
+  if (!token) {
+    return res.send("token not found")
   }
-});
-
-user.post("/login", async (req, res) => {
-  const { email, password } = req.body;
+  
   try {
-    const user = await UserModel.findOne({ email });
-    // console.log(user , "in userRoute")
-    if (user) {
-      const hashed_password = user.password;
-      bcrypt.compare(password, hashed_password, function (err, result) {
-        if (result) {
-          const token = jwt.sign({ id: user._id, email: user.email }, "abc", {
-            expiresIn: "1 day",
-          });
-          const refreshToken = jwt.sign(
-            { id: user._id, email: user.email },
-            "xyz",
-            { expiresIn: "5 days" }
-          );
-           return res
-            .status(200)
-            .send({ message: "login success", token, refreshToken });
-        }else{
-          return res.status(401).send("Login failed");
+    const verification = jwt.verify(token, "SECRET12345");
+
+    if (verification.exp > new Date().getTime()) {
+      return res.send("token is expired");
+    }
+
+    if (blacklist.includes(token)) {
+      return res.send("token already used")
+    }
+    next()
+
+  } catch (e) {
+    return res.send(e.message)
+  }
+}
+app.get("/", async(req,res)=>{
+  const user = await UserModel.find()
+  res.send(user)
+})
+
+//login up start
+app.post("/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  const user = await UserModel.findOne({ email })
+  const passs = await argon2.verify(user.password, password)
+  try {
+    if (passs) {
+      const token = jwt.sign({ id: user._id, name: user.name, email: user.email, role: user.role },
+        "SECRETKEY123",
+        {
+          expiresIn: "5 mins"
         }
-      });
+      )
+      const refreshToken = jwt.sign({}, "REFRESH", {
+        expiresIn: "7 days"
+      })
+      res.send({ msg: "login sucess", token, refreshToken })
     }
-    else {
-      return res.status(404).send("User not found");
-    }
-  }catch (err) {
-    return res.status(400).send("Wrong credentials");
+    res.status(401).send("invalid user")
+  } catch (e) {
+    return res.send(e.message)
   }
-});
 
-module.exports = user;
+
+})
+
+//sign up start
+
+app.post("/signup", async (req, res) => {
+  const { email, password, name, age } = req.body;
+
+  const hash = await argon2.hash(password)
+  
+  const token = req.headers["authorization"]
+
+  try {
+
+    if (token) {
+
+      const decoded = jwt.decode(token);
+    
+      if (decoded) {
+        if (decoded.role === "HR") {
+          const user = new UserModel({ name, email, password: hash, age, role: "Employee" })
+          await user.save()
+          return res.status(201).send("Employee creation success")
+        }
+        else {
+          return res.status(403).send("You are not allowed")
+        }
+      }
+
+    }
+
+  }
+  catch (e) {
+    return res.send(e.message)
+  }
+
+
+ 
+  const user = new UserModel({ name, email, password: hash, age })
+  await user.save()
+  return res.status(201).send("Guests creation success")
+ 
+
+})
+module.exports = app;

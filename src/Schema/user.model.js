@@ -1,13 +1,21 @@
+
 const { Schema, model } = require("mongoose");
 const userSchema = new Schema({
+  name: String,
   email: {
     type: String,
-    unique: true,
-    require: true,
+    unique: true
   },
   password: String,
+  age: Number,
+  role: {
+    type: String,
+    enum: ["Guests", "Employee", "HR"],
+    default: "Guests",
+  }
 });
 
-const UserModel = model("user", userSchema);
+const UserModel = model("global", userSchema);
 
 module.exports = UserModel;
+
